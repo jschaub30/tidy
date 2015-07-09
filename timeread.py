@@ -32,11 +32,21 @@ class Measurement:
         fields = [i for i in self.__dict__.keys() if i[:1] != '_']
         return fields
 
-    def header(self):
+    def headercsv(self):
         '''
         Returns a csv string with all header fields
         '''
         return ','.join(self.fields())
+
+    def headerhtml(self, fields=None):
+        '''
+        Returns an HTML string all header fields
+        '''
+        if not fields:
+            fields=self.fields()
+        row = '<tr>\n<th>%s</th>\n</tr>\n' % ('</th>\n<th>'.join(fields))
+
+        return row
 
     def addfield(self, name=None, value=None):
         if name not in self.fields():
@@ -46,44 +56,31 @@ class Measurement:
     def htmlclass(self):
         return "warning" if int(self.exit_status) != 0 else ""
 
-    def rowhtml(self, fields=None, include_tr=True, rowclass=None):
-        '''
-        Returns an html formatted string with all td cells in row
-        include_tr = True --> add "<tr>" and </tr> tags
-        prefix = 'FIELD' or ['FIELD1', 'FIELD2']
-        suffix = 'FIELD' or ['FIELD1', 'FIELD2']
-        '''
+    def rowhtml(self, fields=None, rowclass=None):
+        ''' Returns an html formatted string with all td cells in row '''
         if not fields:
             fields = self.fields()
         if not rowclass:
             rowclass = self.htmlclass()
 
-        values = [str(getattr(self, field)) for field in fields]
+        try:
+            values = [str(getattr(self, field)) for field in fields]
+        except AttributeError as err:
+            sys.stderr.write('\nProblem creating html\n%s\n' % str(err))
+            sys.stderr.write('Available attributes are %s\n\n' % (self.fields()))
+            assert False
 
-        # if prefix:
-        #     if isinstance(prefix, list):
-        #         prefix.reverse()
-        #         # [fields.insert(0, field) for field in prefix]
-        #         [values.insert(0, '') for field in prefix]
-        #     else:
-        #         # fields.insert(0, prefix)
-        #         values.insert(0, prefix)
-        # if suffix:
-        #     if isinstance(prefix, list):
-        #         tmp = [values.append(field) for field in suffix]
-        #     else:
-        #         values.append(suffix)
-
-        if include_tr:
-            html_row = '<tr class="%s">\n' % (rowclass)
-        else:
-            html_row = ''
-        html_row += '<td>'
+        html_row = '<tr class="%s">\n<td>' % (rowclass)
         html_row += '</td>\n<td>'.join(values)
-        html_row += '</td>\n'
-        if include_tr:
-            html_row += '</tr>\n'
+        html_row += '</td>\n</tr>\n'
         return html_row
+
+    def rowcsv(self, fields=None):
+        ''' Returns an CSV formatted string with all td cells in row '''
+        if not fields:
+            fields = self.fields()
+        values = [str(getattr(self, field)) for field in fields]
+        return ','.join(values) + '\n'
 
     def parse(self, time_fn):
         '''
@@ -91,43 +88,43 @@ class Measurement:
         Parsing these fields:  exit_status, user_time_sec, elapsed_time_sec,
                                system_time_sec, cpu_percent
         '''
-        # try:
-        with open(time_fn, 'r') as fid:
-            blob = fid.read()
-        self.exit_status = blob.split('Exit status: ')[1].split('\n')[0].strip()
-        if self.exit_status != '0':
-            sys.stderr.write(
-                "WARNING! non-zero exit status = %s in file \n\t%s\n" %
-                (self.exit_status, time_fn))
-        self.user_time_sec = blob.split(
-            'User time (seconds): ')[1].split('\n')[0].strip()
-        self.system_time_sec = blob.split(
-            'System time (seconds): ')[1].split('\n')[0].strip()
-        val = blob.split('Elapsed (wall clock) time (h:mm:ss or m:ss): ')[
-            1].split('\n')[0].strip()
-        if len(val.split(':')) == 2:   # m:ss
-            val = str(
-                int(val.split(':')[0]) * 60 + float(val.split(':')[1].strip()))
-        elif len(val.split(':')) == 3:   # h:m:ss
-            val = str(int(val.split(':')[
-                      0]) * 3600 + int(val.split(':')[1]) * 60 +
-                      float(val.split(':')[2].strip()))
-        self.elapsed_time_sec = val
-        self.cpu_pct = blob.split('Percent of CPU this job got: ')[
-            1].split('\n')[0].strip('%')
-        # except:
-        #     sys.stderr.write('Problem parsing time file %s\n' % time_fn)
+        try:
+            with open(time_fn, 'r') as fid:
+                blob = fid.read()
+            self.exit_status = blob.split('Exit status: ')[1].split('\n')[0].strip()
+            if self.exit_status != '0':
+                sys.stderr.write(
+                    "WARNING! non-zero exit status = %s in file \n\t%s\n" %
+                    (self.exit_status, time_fn))
+            self.user_time_sec = blob.split(
+                'User time (seconds): ')[1].split('\n')[0].strip()
+            self.system_time_sec = blob.split(
+                'System time (seconds): ')[1].split('\n')[0].strip()
+            val = blob.split('Elapsed (wall clock) time (h:mm:ss or m:ss): ')[
+                1].split('\n')[0].strip()
+            if len(val.split(':')) == 2:   # m:ss
+                val = str(
+                    int(val.split(':')[0]) * 60 + float(val.split(':')[1].strip()))
+            elif len(val.split(':')) == 3:   # h:m:ss
+                val = str(int(val.split(':')[
+                          0]) * 3600 + int(val.split(':')[1]) * 60 +
+                          float(val.split(':')[2].strip()))
+            self.elapsed_time_sec = val
+            self.cpu_pct = blob.split('Percent of CPU this job got: ')[
+                1].split('\n')[0].strip('%')
+        except Exception as err:
+            sys.stderr.write('Problem parsing time file %s\n%s\n' %
+                             (time_fn, str(err)))
 
     def is_valid(self):
         return len(self.fields()) == self._expected_length
 
 
 def main(time_fn):
-    # Wrapper to print to stdout
+    # Wrapper to write csv to stdout
     m = Measurement()
-    sys.stdout.write('%s' % (m.rowhtml()))
     m.parse(time_fn)
-    sys.stdout.write('%s' % (m.rowhtml()))
+    sys.stdout.write('%s\n%s\n' % (m.headercsv(), m.rowcsv()))
 
 
 if __name__ == '__main__':
